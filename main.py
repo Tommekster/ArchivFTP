@@ -2,6 +2,8 @@ from pyftpdlib.authorizers import DummyAuthorizer
 from pyftpdlib.filesystems import AbstractedFS
 from pyftpdlib.handlers import FTPHandler
 from pyftpdlib.servers import FTPServer
+import os
+import gzip
 
 
 # The port the FTP server will listen on.
@@ -18,9 +20,61 @@ FTP_PASSWORD = "change_this_password"
 FTP_DIRECTORY = "./data"
 #FTP_DIRECTORY = "/srv/users/SYSUSER/apps/APPNAME/public/"
 
+
 class ArchiveAbstractedFS(AbstractedFS):
     def open(self, filename, mode):
-        return super().open(filename, mode)
+        """Open a file returning its handler."""
+        assert isinstance(filename, str), filename
+        gz_name = self._gz(filename)
+        return gzip.open(gz_name, mode)
+
+    def listdir(self, path):
+        listing = super().listdir(path)
+        listing = set(self._ungz(x) for x in listing)
+        return list(listing)
+
+    def listdirinfo(self, path):
+        return self.listdir(path)
+
+    def remove(self, path):
+        gz_path = self._gz(path)
+        return super().remove(gz_path)
+
+    def rename(self, src, dst):
+        gz_src = self._gz(src)
+        if os.path.isfile(gz_src):
+            gz_dst = self._gz(dst)
+            return super().rename(gz_src, gz_dst)
+        else:
+            return super().rename(src, dst)
+
+    def isfile(self, path):
+        gz_path = self._gz(path)
+        return super().isfile(gz_path)
+
+    def lexists(self, path):
+        return self._gzify(super().lexists, path)
+
+    def stat(self, path):
+        return self._gzify(super().stat, path)
+
+    def lstat(self, path):
+        return self._gzify(super().lstat, path)
+
+    def _gz(self, path):
+        return path + ".gz"
+
+    def _gzify(self, func, path):
+        gz_path = self._gz(path)
+        return (
+            func(gz_path)
+            if os.path.isfile(gz_path)
+            else func(path)
+        )
+
+    def _ungz(self, path: str):
+        return path[:-3] if path.endswith(".gz") else path
+
 
 class ArchiveFTPHandler(FTPHandler):
     abstracted_fs = ArchiveAbstractedFS
